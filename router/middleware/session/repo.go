@@ -2,7 +2,9 @@ package session
 
 import (
 	"net/http"
+	"os"
 
+	"github.com/drone/drone/cache"
 	"github.com/drone/drone/model"
 	"github.com/drone/drone/remote"
 	"github.com/drone/drone/shared/token"
@@ -104,23 +106,12 @@ func Perm(c *gin.Context) *model.Perm {
 }
 
 func SetPerm() gin.HandlerFunc {
+	PUBLIC_MODE := os.Getenv("PUBLIC_MODE")
+
 	return func(c *gin.Context) {
 		user := User(c)
 		repo := Repo(c)
 		perm := &model.Perm{}
-
-		if user != nil {
-			// attempt to get the permissions from a local cache
-			// just to avoid excess API calls to GitHub
-			val, ok := c.Get("perm")
-			if ok {
-				c.Next()
-
-				log.Debugf("%s using cached %+v permission to %s",
-					user.Login, val, repo.FullName)
-				return
-			}
-		}
 
 		switch {
 		// if the user is not authenticated, and the
@@ -147,7 +138,7 @@ func SetPerm() gin.HandlerFunc {
 		// check the remote system to get the users permissiosn.
 		default:
 			var err error
-			perm, err = remote.FromContext(c).Perm(user, repo.Owner, repo.Name)
+			perm, err = cache.GetPerms(c, user, repo.Owner, repo.Name)
 			if err != nil {
 				perm.Pull = false
 				perm.Push = false
@@ -162,6 +153,11 @@ func SetPerm() gin.HandlerFunc {
 			if err != nil && repo.IsPrivate == false {
 				perm.Pull = true
 			}
+		}
+
+		// all build logs are visible in public mode
+		if PUBLIC_MODE != "" {
+			perm.Pull = true
 		}
 
 		if user != nil {

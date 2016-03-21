@@ -82,7 +82,7 @@ func GetBuildLogs(c *gin.Context) {
 
 	// the user may specify to stream the full logs,
 	// or partial logs, capped at 2MB.
-	full, _ := strconv.ParseBool(c.Params.ByName("full"))
+	full, _ := strconv.ParseBool(c.DefaultQuery("full", "false"))
 
 	// parse the build number and job sequence number from
 	// the repquest parameter.
@@ -248,7 +248,7 @@ func PostBuild(c *gin.Context) {
 
 	c.JSON(202, build)
 
-	// get the previous build so taht we can send
+	// get the previous build so that we can send
 	// on status change notifications
 	last, _ := store.GetBuildLastBefore(c, repo, build.Branch, build.ID)
 

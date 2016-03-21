@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	DefaultURL   = "https://github.com"
-	DefaultAPI   = "https://api.github.com"
-	DefaultScope = "repo,repo:status,user:email"
+	DefaultURL      = "https://github.com"
+	DefaultAPI      = "https://api.github.com"
+	DefaultScope    = "repo,repo:status,user:email"
+	DefaultMergeRef = "merge"
 )
 
 type Github struct {
@@ -29,6 +30,8 @@ type Github struct {
 	API         string
 	Client      string
 	Secret      string
+	Scope       string
+	MergeRef    string
 	Orgs        []string
 	Open        bool
 	PrivateMode bool
@@ -54,16 +57,26 @@ func Load(env envconfig.Env) *Github {
 	github.URL = url_.String()
 	github.Client = params.Get("client_id")
 	github.Secret = params.Get("client_secret")
+	github.Scope = params.Get("scope")
 	github.Orgs = params["orgs"]
 	github.PrivateMode, _ = strconv.ParseBool(params.Get("private_mode"))
 	github.SkipVerify, _ = strconv.ParseBool(params.Get("skip_verify"))
 	github.Open, _ = strconv.ParseBool(params.Get("open"))
 	github.GitSSH, _ = strconv.ParseBool(params.Get("ssh"))
+	github.MergeRef = params.Get("merge_ref")
 
 	if github.URL == DefaultURL {
 		github.API = DefaultAPI
 	} else {
 		github.API = github.URL + "/api/v3/"
+	}
+
+	if github.Scope == "" {
+		github.Scope = DefaultScope
+	}
+
+	if github.MergeRef == "" {
+		github.MergeRef = DefaultMergeRef
 	}
 
 	return &github
@@ -76,7 +89,7 @@ func (g *Github) Login(res http.ResponseWriter, req *http.Request) (*model.User,
 	var config = &oauth2.Config{
 		ClientId:     g.Client,
 		ClientSecret: g.Secret,
-		Scope:        DefaultScope,
+		Scope:        g.Scope,
 		AuthURL:      fmt.Sprintf("%s/login/oauth/authorize", g.URL),
 		TokenURL:     fmt.Sprintf("%s/login/oauth/access_token", g.URL),
 		RedirectURL:  fmt.Sprintf("%s/authorize", httputil.GetURL(req)),
@@ -402,7 +415,7 @@ func (g *Github) pullRequest(r *http.Request) (*model.Repo, *model.Build, error)
 	build := &model.Build{}
 	build.Event = model.EventPull
 	build.Commit = *hook.PullRequest.Head.SHA
-	build.Ref = fmt.Sprintf("refs/pull/%d/merge", *hook.PullRequest.Number)
+	build.Ref = fmt.Sprintf("refs/pull/%d/%s", *hook.PullRequest.Number, g.MergeRef)
 	build.Link = *hook.PullRequest.HTMLURL
 	build.Branch = *hook.PullRequest.Head.Ref
 	build.Message = *hook.PullRequest.Title

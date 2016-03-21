@@ -301,7 +301,8 @@ func (e *engine) runJob(c context.Context, r *Task, updater *updater, client doc
 		Cmd:        args,
 		Env:        e.envs,
 		HostConfig: dockerclient.HostConfig{
-			Binds: []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			Binds:            []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			MemorySwappiness: -1,
 		},
 		Volumes: map[string]struct{}{
 			"/var/run/docker.sock": struct{}{},
@@ -329,6 +330,11 @@ func (e *engine) runJob(c context.Context, r *Task, updater *updater, client doc
 	info, builderr := docker.Wait(client, name)
 
 	switch {
+	case info.State.Running:
+		// A build unblocked before actually being completed.
+		log.Errorf("incomplete build: %s", name)
+		r.Job.ExitCode = 1
+		r.Job.Status = model.StatusError
 	case info.State.ExitCode == 128:
 		r.Job.ExitCode = info.State.ExitCode
 		r.Job.Status = model.StatusKilled
@@ -405,7 +411,8 @@ func (e *engine) runJobNotify(r *Task, client dockerclient.Client) error {
 		Cmd:        args,
 		Env:        e.envs,
 		HostConfig: dockerclient.HostConfig{
-			Binds: []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			Binds:            []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			MemorySwappiness: -1,
 		},
 		Volumes: map[string]struct{}{
 			"/var/run/docker.sock": struct{}{},

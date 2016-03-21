@@ -1,9 +1,9 @@
 package docker
 
 import (
-	"io"
-	"io/ioutil"
+	"errors"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/samalba/dockerclient"
 )
 
@@ -38,14 +38,14 @@ func Run(client dockerclient.Client, conf *dockerclient.ContainerConfig, name st
 func RunDaemon(client dockerclient.Client, conf *dockerclient.ContainerConfig, name string) (*dockerclient.ContainerInfo, error) {
 
 	// attempts to create the contianer
-	id, err := client.CreateContainer(conf, name)
+	id, err := client.CreateContainer(conf, name, nil)
 	if err != nil {
 		// and pull the image and re-create if that fails
 		err = client.PullImage(conf.Image, nil)
 		if err != nil {
 			return nil, err
 		}
-		id, err = client.CreateContainer(conf, name)
+		id, err = client.CreateContainer(conf, name, nil)
 		if err != nil {
 			client.RemoveContainer(id, true, true)
 			return nil, err
@@ -77,33 +77,21 @@ func Wait(client dockerclient.Client, name string) (*dockerclient.ContainerInfo,
 		client.KillContainer(name, "9")
 	}()
 
-	errc := make(chan error, 1)
-	infoc := make(chan *dockerclient.ContainerInfo, 1)
-	go func() {
-
-		// blocks and waits for the container to finish
-		// by streaming the logs (to /dev/null). Ideally
-		// we could use the `wait` function instead
-		rc, err := client.ContainerLogs(name, LogOptsTail)
-		if err != nil {
-			errc <- err
-			return
-		}
-		io.Copy(ioutil.Discard, rc)
-		rc.Close()
+	for attempts := 0; attempts < 5; attempts++ {
+		done := client.Wait(name)
+		<-done
 
 		info, err := client.InspectContainer(name)
 		if err != nil {
-			errc <- err
-			return
+			return nil, err
 		}
-		infoc <- info
-	}()
 
-	select {
-	case info := <-infoc:
-		return info, nil
-	case err := <-errc:
-		return nil, err
+		if !info.State.Running {
+			return info, nil
+		}
+
+		log.Debugf("attempting to resume waiting after %d attempts.\n", attempts)
 	}
+
+	return nil, errors.New("reached maximum wait attempts")
 }
